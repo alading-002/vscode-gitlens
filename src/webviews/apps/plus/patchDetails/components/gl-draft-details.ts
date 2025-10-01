@@ -166,10 +166,9 @@ export class GlDraftDetails extends GlTreeBase {
 
 			// Update tree model when state changes
 			this.updateTreeModel();
-		}
-
-		// Update tree model when selectedPatches changes to reflect checked state
-		if (changedProperties.has('selectedPatches')) {
+		} else if (changedProperties.has('selectedPatches')) {
+			// Update tree model when selectedPatches changes to reflect checked state
+			// Only if state didn't change (to avoid double update)
 			this.updateTreeModel();
 		}
 	}
