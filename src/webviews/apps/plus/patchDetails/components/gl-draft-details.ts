@@ -105,6 +105,9 @@ export class GlDraftDetails extends GlTreeBase {
 	validityMessage?: string;
 
 	@state()
+	private _treeModel: TreeModel[] = [];
+
+	@state()
 	private _copiedLink: boolean = false;
 
 	get cloudDraft() {
@@ -160,7 +163,52 @@ export class GlDraftDetails extends GlTreeBase {
 			// 		return patches.find(p => p.id === id) != null;
 			// 	});
 			// }
+
+			// Update tree model when state changes
+			this.updateTreeModel();
+		} else if (changedProperties.has('selectedPatches')) {
+			// Update tree model when selectedPatches changes to reflect checked state
+			// Only if state didn't change (to avoid double update)
+			this.updateTreeModel();
 		}
+	}
+
+	private updateTreeModel(): void {
+		if (this.state?.draft?.patches == null) {
+			this._treeModel = [];
+			return;
+		}
+
+		const {
+			draft: { patches },
+		} = this.state;
+
+		const layout = this.state?.preferences?.files?.layout ?? 'auto';
+		let isTree = false;
+
+		const fileCount = flatCount(patches, p => p?.files?.length ?? 0);
+		if (layout === 'auto') {
+			isTree = fileCount > (this.state.preferences?.files?.threshold ?? 5);
+		} else {
+			isTree = layout === 'tree';
+		}
+
+		this._treeModel = patches?.map(p =>
+			this.draftPatchToTreeModel(p, isTree, this.state.preferences?.files?.compact, {
+				checkable: true,
+				checked: this.selectedPatches.includes(p.id),
+			}),
+		);
+	}
+
+	private checkValidity(reportErrors = false): boolean {
+		const valid = this.selectedPatches.length > 0;
+		if (!valid && reportErrors) {
+			this.validityMessage = 'Please select changes to apply';
+		} else {
+			this.validityMessage = undefined;
+		}
+		return valid;
 	}
 
 	private renderEmptyContent() {
@@ -282,38 +330,11 @@ export class GlDraftDetails extends GlTreeBase {
 					${when(
 						this.state?.draft?.patches == null,
 						() => this.renderLoading(),
-						() => this.renderTreeView(this.treeModel, this.state?.preferences?.indentGuides),
+						() => this.renderTreeView(this._treeModel, this.state?.preferences?.indentGuides),
 					)}
 				</div>
 			</webview-pane>
 		`;
-	}
-
-	// TODO: make a local state instead of a getter
-	get treeModel(): TreeModel[] {
-		if (this.state?.draft?.patches == null) return [];
-
-		const {
-			draft: { patches },
-		} = this.state;
-
-		const layout = this.state?.preferences?.files?.layout ?? 'auto';
-		let isTree = false;
-
-		const fileCount = flatCount(patches, p => p?.files?.length ?? 0);
-		if (layout === 'auto') {
-			isTree = fileCount > (this.state.preferences?.files?.threshold ?? 5);
-		} else {
-			isTree = layout === 'tree';
-		}
-
-		const models = patches?.map(p =>
-			this.draftPatchToTreeModel(p, isTree, this.state.preferences?.files?.compact, {
-				checkable: true,
-				checked: this.selectedPatches.includes(p.id),
-			}),
-		);
-		return models;
 	}
 
 	private renderUserSelection(userSelection: DraftUserSelection, role: DraftRole) {
@@ -772,7 +793,7 @@ export class GlDraftDetails extends GlTreeBase {
 		if (e.detail.checked) {
 			if (selectedIndex === -1) {
 				this.selectedPatches.push(patch.id);
-				this.validityMessage = undefined;
+				this.checkValidity();
 			}
 		} else if (selectedIndex > -1) {
 			this.selectedPatches.splice(selectedIndex, 1);
@@ -796,12 +817,9 @@ export class GlDraftDetails extends GlTreeBase {
 	}
 
 	private onApplyPatch(_e?: MouseEvent | KeyboardEvent, target: 'current' | 'branch' | 'worktree' = 'current') {
-		if (this.canSubmit === false) {
-			this.validityMessage = 'Please select changes to apply';
+		if (!this.checkValidity(true)) {
 			return;
 		}
-
-		this.validityMessage = undefined;
 
 		this.emit('gl-patch-apply-patch', {
 			draft: this.state.draft!,
@@ -815,8 +833,7 @@ export class GlDraftDetails extends GlTreeBase {
 	}
 
 	private onSelectApplyOption(e: CustomEvent<{ target: MenuItem }>) {
-		if (this.canSubmit === false) {
-			this.validityMessage = 'Please select changes to apply';
+		if (!this.checkValidity(true)) {
 			return;
 		}
 
